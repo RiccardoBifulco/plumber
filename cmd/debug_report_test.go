@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -62,10 +64,35 @@ func TestDebugFlag(t *testing.T) {
 }
 
 // Without --debug, starting and finishing the report does nothing: no
-// rate-limit read, no file.
+// rate-limit read, no request log, no file.
 func TestStartGitHubDebugReport_off(t *testing.T) {
 	newDebugCmd(t)
-	startGitHubDebugReport(nil, "local")()
+	t.Chdir(t.TempDir()) // where a bare --debug would write
+	savedRegistry, savedFetch := httpcount.Default, fetchRateLimit
+	t.Cleanup(func() { httpcount.Default, fetchRateLimit = savedRegistry, savedFetch })
+	httpcount.Default = &httpcount.Registry{}
+	fetchRateLimit = func(string, string) (map[string]httpcount.RateResource, error) {
+		t.Error("rate limit read without --debug")
+		return nil, nil
+	}
+
+	startGitHubDebugReport(&configuration.Configuration{ProjectPath: "o/r"}, "remote")()
+
+	// A request sent after the start is counted, never logged.
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	client := &http.Client{Transport: &httpcount.Transport{Registry: httpcount.Default}}
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if snap := httpcount.Default.Snapshot(); len(snap.Entries) != 0 || snap.Total() != 1 {
+		t.Fatalf("logged %d requests of %d, want none", len(snap.Entries), snap.Total())
+	}
+	if files, err := os.ReadDir("."); err != nil || len(files) != 0 {
+		t.Fatalf("files written without --debug: %v (%v)", files, err)
+	}
 }
 
 // setDebugTokens sets the lanes' token (GH_TOKEN) and the metadata token.
