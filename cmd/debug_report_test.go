@@ -191,3 +191,44 @@ func TestStartGitHubDebugReport_rateLimits(t *testing.T) {
 		t.Fatalf("%s section lacks %q:\n%s", githubpkg.EnvMetadataToken, row, report)
 	}
 }
+
+// TestStartGitHubDebugReport_logsTheRun: with --debug, a request the run
+// sends between the start and the finish lands in the report's request
+// log. It pins both the log being turned on and the run's snapshot being
+// copied into the report.
+func TestStartGitHubDebugReport_logsTheRun(t *testing.T) {
+	newDebugCmd(t)
+	debugFile = filepath.Join(t.TempDir(), "debug.md")
+	setDebugTokens(t, "lanes-tok", "")
+	savedRegistry, savedFetch := httpcount.Default, fetchRateLimit
+	t.Cleanup(func() { httpcount.Default, fetchRateLimit = savedRegistry, savedFetch })
+	httpcount.Default = &httpcount.Registry{}
+	fetchRateLimit = func(string, string) (map[string]httpcount.RateResource, error) {
+		return map[string]httpcount.RateResource{}, nil
+	}
+
+	finish := startGitHubDebugReport(&configuration.Configuration{ProjectPath: "o/r"}, "remote")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Resource", "core")
+		w.Header().Set("X-RateLimit-Limit", "5000")
+		w.Header().Set("X-RateLimit-Remaining", "4999")
+		w.Header().Set("X-RateLimit-Used", "1")
+	}))
+	defer srv.Close()
+	client := &http.Client{Transport: &httpcount.Transport{Registry: httpcount.Default}}
+	resp, err := client.Get(srv.URL + "/repos/o/r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	finish()
+
+	data, err := os.ReadFile(debugFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, log, ok := strings.Cut(string(data), "## All requests")
+	if !ok || strings.Contains(log, "_No request logged._") || !strings.Contains(log, "/repos/o/r") {
+		t.Fatalf("the report's request log lacks GET /repos/o/r:\n%s", data)
+	}
+}
