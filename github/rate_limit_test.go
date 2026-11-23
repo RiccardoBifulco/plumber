@@ -68,3 +68,27 @@ func TestFetchRateLimit_notCounted(t *testing.T) {
 		t.Fatalf("rate-limit read was counted: %+v → %+v", before, after)
 	}
 }
+
+// An empty token is the anonymous lane: the read goes out with no
+// Authorization header, even with no token in the environment (go-gh
+// refuses to build a client without one).
+func TestFetchRateLimit_anonymous(t *testing.T) {
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_ENTERPRISE_TOKEN", "")
+	t.Setenv("GITHUB_ENTERPRISE_TOKEN", "")
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	var auth []string
+	host := serveRateLimit(t, func(w http.ResponseWriter, r *http.Request) {
+		auth = append(auth, r.Header.Values("Authorization")...)
+		_, _ = w.Write([]byte(`{"resources":{"core":{"limit":60,"used":3,"remaining":57,"reset":1795000149}}}`))
+	})
+
+	got, err := FetchRateLimit(host, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["core"].Limit != 60 || len(auth) != 0 {
+		t.Fatalf("resources = %+v, Authorization = %q, want the anonymous quota and no header", got, auth)
+	}
+}
