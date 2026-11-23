@@ -793,7 +793,7 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 		func() error { return envStringFallback(cmd, "branch", envKeys["branch"], &defaultBranch) },
 		func() error { return envStringFallback(cmd, "config", envKeys["config"], &configFile) },
 		func() error { return envStringFallback(cmd, "output", envKeys["output"], &outputFile) },
-		func() error { return envDebugFallback(cmd) },
+		func() error { return resolveDebugFile(cmd) },
 		func() error { return envStringFallback(cmd, "pbom", envKeys["pbom"], &pbomFile) },
 		func() error {
 			return envStringFallback(cmd, "pbom-cyclonedx", envKeys["pbom-cyclonedx"], &pbomCycloneDXFile)

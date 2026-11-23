@@ -23,22 +23,22 @@ const defaultDebugFile = "plumber-debug.md"
 // debugFile is the --debug report path; empty means no report.
 var debugFile string
 
-// envDebugFallback applies PLUMBER_ANALYZE_DEBUG when --debug was not
-// given: a boolean turns the report on (default file) or off, anything else
-// is the report path.
-func envDebugFallback(cmd *cobra.Command) error {
-	if cmd.Flags().Changed("debug") {
-		return nil
+// resolveDebugFile sets debugFile from --debug, or from
+// PLUMBER_ANALYZE_DEBUG when the flag was not given. Both read the same
+// way: a boolean turns the report on (default file) or off, anything else
+// is the report path. So a wrapper forwarding --debug=false writes no
+// report, never a file named false.
+func resolveDebugFile(cmd *cobra.Command) error {
+	v := debugFile
+	if !cmd.Flags().Changed("debug") {
+		v = os.Getenv(envKeys["debug"])
 	}
-	v := strings.TrimSpace(os.Getenv(envKeys["debug"]))
-	if v == "" {
-		return nil
-	}
+	v = strings.TrimSpace(v)
 	if on, err := strconv.ParseBool(v); err == nil {
+		v = ""
 		if on {
-			debugFile = defaultDebugFile
+			v = defaultDebugFile
 		}
-		return nil
 	}
 	debugFile = v
 	return nil

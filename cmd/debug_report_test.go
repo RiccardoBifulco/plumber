@@ -45,6 +45,12 @@ func TestDebugFlag(t *testing.T) {
 		{name: "env false", env: "false", want: ""},
 		{name: "env path", env: "report.md", want: "report.md"},
 		{name: "flag wins over env", args: []string{"--debug=flag.md"}, env: "env.md", want: "flag.md"},
+		// The flag reads a boolean like the env var: a wrapper forwarding
+		// --debug=${{ inputs.debug }} must not write a file named false.
+		{name: "flag false", args: []string{"--debug=false"}, want: ""},
+		{name: "flag 0", args: []string{"--debug=0"}, want: ""},
+		{name: "flag true", args: []string{"--debug=true"}, want: defaultDebugFile},
+		{name: "flag false wins over env", args: []string{"--debug=false"}, env: "report.md", want: ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,7 +59,7 @@ func TestDebugFlag(t *testing.T) {
 			if err := c.ParseFlags(tc.args); err != nil {
 				t.Fatal(err)
 			}
-			if err := envDebugFallback(c); err != nil {
+			if err := resolveDebugFile(c); err != nil {
 				t.Fatal(err)
 			}
 			if debugFile != tc.want {
