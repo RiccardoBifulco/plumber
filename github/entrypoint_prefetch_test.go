@@ -220,3 +220,63 @@ func TestCandidateRefs(t *testing.T) {
 		t.Fatalf("candidateRefs = %+v, want %+v", got, want)
 	}
 }
+
+// TestEnrichActions_PrefetchSkipsAbsentEntrypoints runs the prefetch the
+// way a scan does: the paths candidateRefs asks about must be the paths
+// the mutable-exec scan reads (a subpath action included), so a candidate
+// GitHub reports absent costs no raw read, while the one that exists and
+// the declared main: are still read.
+func TestEnrichActions_PrefetchSkipsAbsentEntrypoints(t *testing.T) {
+	t.Setenv(EnvDisableGitHubAPI, "0")
+	t.Setenv(EnvMetadataToken, "test-token")
+	stub := newStub(map[string]string{
+		"acme/mono@v2:tools/lint/action.yml":    "name: lint\nruns:\n  using: node20\n  main: dist/main.js\n",
+		"acme/mono@v2:tools/lint/dist/main.js":  "console.log(1)",
+		"acme/mono@v2:tools/lint/dist/index.js": "console.log(2)",
+		"acme/js@v1:action.yml":                 composite(),
+	})
+	client := stubbedMetadataClient(t, func(*http.Request) (string, int) { return `{}`, http.StatusNotFound })
+	gql, queries := stubbedGraphQL(t, func(q graphQLRequest) (string, int) {
+		// Answer from the request's own variables, whatever their order:
+		// dist/index.js exists, every other candidate does not.
+		data := map[string]map[string]any{}
+		for name, v := range q.Variables {
+			ri, pj, ok := strings.Cut(strings.TrimPrefix(name, "e"), "_")
+			if !strings.HasPrefix(name, "e") || !ok {
+				continue
+			}
+			if data["r"+ri] == nil {
+				data["r"+ri] = map[string]any{}
+			}
+			var obj any
+			if strings.HasSuffix(v.(string), ":dist/index.js") || strings.HasSuffix(v.(string), "/dist/index.js") {
+				obj = map[string]string{"__typename": "Blob"}
+			}
+			data["r"+ri]["p"+pj] = obj
+		}
+		body, _ := json.Marshal(map[string]any{"data": data})
+		return string(body), http.StatusOK
+	})
+	client.gql = gql
+	defs := tokenFetcher(stub.fetch, client)
+	p := &ir.NormalizedPipeline{Provider: ir.ProviderGitHub, ProjectPath: "acme/app", Jobs: []ir.Job{oneJob("acme/mono/tools/lint@v2", "acme/js@v1")}}
+	resolveNestedActions(p, defs, nestedScope{projectPath: "acme/app"})
+	enrichActions(p, client, defs, true, nil)
+
+	if len(*queries) != 1 {
+		t.Fatalf("want one prefetch query, got %d", len(*queries))
+	}
+	for _, key := range []string{
+		"acme/mono@v2:tools/lint/action.js", "acme/mono@v2:tools/lint/index.js", "acme/mono@v2:tools/lint/src/index.js",
+		"acme/js@v1:action.js", "acme/js@v1:index.js", "acme/js@v1:src/index.js",
+	} {
+		if n := stub.calls[key]; n != 0 {
+			t.Errorf("%s read %d times, want 0: GitHub said it does not exist", key, n)
+		}
+	}
+	for _, key := range []string{"acme/mono@v2:tools/lint/dist/index.js", "acme/mono@v2:tools/lint/dist/main.js", "acme/js@v1:dist/index.js"} {
+		if n := stub.calls[key]; n != 1 {
+			t.Errorf("%s read %d times, want 1", key, n)
+		}
+	}
+}
