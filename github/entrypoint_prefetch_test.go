@@ -96,6 +96,9 @@ func TestPrefetchAbsent_ErrorMarksNothing(t *testing.T) {
 		"sso":         {`{"data":{"r0":null},"errors":[{"type":"FORBIDDEN","path":["r0"],"message":"Resource protected by organization SAML enforcement."}]}`, http.StatusOK},
 		"5xx":         {`{"message":"Server Error"}`, http.StatusBadGateway},
 		"whole query": {`{"data":{"r0":{"p0":null}},"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}`, http.StatusOK},
+		// GitHub keeps the repository but nulls the one object it failed
+		// to resolve: that null is the error, not an absent file.
+		"one object": {`{"data":{"r0":{"p0":null}},"errors":[{"path":["r0","p0"],"message":"Something went wrong while executing your query."}]}`, http.StatusOK},
 	} {
 		t.Run(name, func(t *testing.T) {
 			gql, _ := stubbedGraphQL(t, func(graphQLRequest) (string, int) { return answer.body, answer.status })
