@@ -849,7 +849,8 @@ func TestReadWith_TokenIsProvenPerRepository(t *testing.T) {
 // token gets a 404 from the raw host and a 401 from the contents API. The
 // token is never accepted, so every miss asks the API again and stays a
 // fetch error (could-not-verify), never a missing file that lets the
-// checks pass.
+// checks pass. It reads at a commit SHA, the only ref where a raw miss
+// can be final, so a 401 that marked the repository proven would fail it.
 func TestReadWith_RejectedTokenNeverMakesARawMissFinal(t *testing.T) {
 	t.Setenv(EnvDisableGitHubAPI, "0")
 	stub := newStub(map[string]string{})
@@ -861,7 +862,7 @@ func TestReadWith_RejectedTokenNeverMakesARawMissFinal(t *testing.T) {
 	defs := newDefinitionFetcher(stub.fetch, client)
 	defs.rawToken = "expired-token"
 	for _, p := range []string{"action.yml", "dist/index.js"} {
-		if _, st := defs.read("acme", "b", "v1", p); st != fetchError {
+		if _, st := defs.read("acme", "b", testSHA, p); st != fetchError {
 			t.Fatalf("%s: status = %v, want fetchError", p, st)
 		}
 	}
