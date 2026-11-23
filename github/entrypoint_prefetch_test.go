@@ -300,3 +300,27 @@ func TestEnrichActions_PrefetchSkipsAbsentEntrypoints(t *testing.T) {
 		}
 	}
 }
+
+// TestCandidateRefs_sealedFetcherSkipsUnadmittedNested: once the container
+// budget is passed, the fetcher is sealed and a nested action the walk did
+// not admit is never read (spec 4.3, R8), so the prefetch must not name
+// it either. An admitted nested action and a workflow's own action are
+// still asked about.
+func TestCandidateRefs_sealedFetcherSkipsUnadmittedNested(t *testing.T) {
+	defs := newDefinitionFetcher(nil, nil)
+	defs.actions[containerKey("acme", "kept", "", "v1")] = actionDefinition{}
+	defs.seal()
+	p := &ir.NormalizedPipeline{Jobs: []ir.Job{{Uses: []ir.Action{
+		{Uses: "acme/kept@v1", Nested: true},
+		{Uses: "acme/cut@v1", Nested: true},
+		{Uses: "acme/top@v1"},
+	}}}}
+	got := candidateRefs(p, defs)
+	want := []candidateRef{
+		{owner: "acme", repo: "kept", ref: "v1", paths: entrypointCandidates},
+		{owner: "acme", repo: "top", ref: "v1", paths: entrypointCandidates},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("candidateRefs = %+v, want %+v", got, want)
+	}
+}
