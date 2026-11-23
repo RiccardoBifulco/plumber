@@ -72,7 +72,8 @@ var prefetchRefGrammar = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 // prefetchAbsent asks GitHub which of refs' files exist and records the
 // ones it says do not, which read then answers without a request. It
 // needs the GraphQL client, which has a token (GraphQL has no anonymous
-// access). A reference outside GitHub's grammar, a ref that is not a plain
+// access): with no token go-gh builds no client, so f.gql is nil and an
+// anonymous run sends no query. A reference outside GitHub's grammar, a ref that is not a plain
 // name (prefetchRefGrammar), or a path climbing out of the repository is
 // left to the per-file reads.
 //

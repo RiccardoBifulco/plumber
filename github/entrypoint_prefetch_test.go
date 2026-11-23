@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -177,6 +178,22 @@ func TestPrefetchAbsent_SendsNothing(t *testing.T) {
 		defs.prefetchAbsent([]candidateRef{{owner: "acme", repo: "js", ref: "v1", paths: []string{"action.js"}}})
 		if len(defs.absent) != 0 {
 			t.Fatalf("absent = %v, want nothing without a client", defs.absent)
+		}
+	})
+	// GraphQL has no anonymous access. With no token anywhere go-gh builds
+	// no client, so the metadata client is disabled and the fetcher gets no
+	// GraphQL client: an anonymous run never sends a query bound to fail.
+	t.Run("no token", func(t *testing.T) {
+		t.Setenv(EnvDisableGitHubAPI, "0")
+		for _, env := range []string{EnvMetadataToken, "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST"} {
+			t.Setenv(env, "")
+		}
+		t.Setenv("GH_CONFIG_DIR", t.TempDir())
+		t.Setenv("GH_PATH", filepath.Join(t.TempDir(), "no-gh")) // no keyring login through `gh auth token`
+		client := NewGitHubMetadataClientForHost("")
+		defs := newDefinitionFetcher(newStub(nil).fetch, client)
+		if client.Available() || client.gql != nil || defs.gql != nil {
+			t.Fatalf("available = %v, client gql = %v, fetcher gql = %v, want no GraphQL client without a token", client.Available(), client.gql != nil, defs.gql != nil)
 		}
 	})
 	t.Run("stubbed metadata client", func(t *testing.T) {
